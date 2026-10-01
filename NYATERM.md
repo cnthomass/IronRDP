@@ -5,8 +5,8 @@ to `ironrdp-client` and `ironrdp-connector` on top of an unmodified upstream bas
 
 - Fork: <https://github.com/nyakang/IronRDP>
 - Upstream: <https://github.com/Devolutions/IronRDP>
-- Base revision: `b149f500b85124c513646494335fb6cee525d897`
-  (upstream `master` on 2026-09-22)
+- Base revision: `8b059e32554e8f750c999f0b82f4ff1af20ffb7e`
+  (upstream `master` on 2026-10-01)
 - Branch: `nyaterm`
 - Crates touched: `crates/ironrdp-client`, `crates/ironrdp-connector`,
   `crates/ironrdp-acceptor`, `crates/ironrdp-vmconnect`, `crates/ironrdp-mstsgu`,
@@ -112,3 +112,13 @@ Only loopback endpoints are accepted. Authentication bytes are omitted from Debu
 This patch is based on c44dcc77, which also merges upstream gateway authentication
 8649c7c6 after NyaTerm's previously pinned 75d9a3b3.
 Validation: Windows client build with rustls + clipboard; focused identity test.
+
+## 2026-10-01 upstream merge
+
+Merged upstream master without content conflicts. NyaTerm full-frame
+resynchronisation, loopback relay routing and authentication policy remain.
+Windows validation passed: `cargo check -p ironrdp-client --features rustls`,
+`cargo check -p ironrdp-client --features rustls,clipboard`,
+`cargo check -p ironrdp-connector -p ironrdp-acceptor -p ironrdp-vmconnect`,
+and `cargo test -p ironrdp-connector`. The consumer's SSPI fork is validated
+separately and selected by NyaTerm's workspace patch.
