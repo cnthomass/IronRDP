@@ -122,3 +122,23 @@ Windows validation passed: `cargo check -p ironrdp-client --features rustls`,
 `cargo check -p ironrdp-connector -p ironrdp-acceptor -p ironrdp-vmconnect`,
 and `cargo test -p ironrdp-connector`. The consumer's SSPI fork is validated
 separately and selected by NyaTerm's workspace patch.
+
+## 2026-10-08 standard RDP security opt-in knob
+
+`feat(client): add opt-in standard RDP security (ENCRYPTION_LEVEL_NONE)
+builder knob` — `ConfigBuilder::with_standard_rdp_security(bool)` lets an
+embedder request `PROTOCOL_RDP` on TCP transports for servers that negotiate
+no TLS/NLA at all. The explicit setting overrides the transport-derived
+default and forces `enable_tls`/`enable_credssp` to `false`; the connector's
+existing NONE-only standard-RDP path (and its hard rejection of servers
+demanding RC4/FIPS) is unchanged and remains the boundary of support.
+
+Reason: RDP servers configured for legacy security only (security layer =
+RDP) previously always failed the X.224 protocol check with "client
+advertised …, but server selected …" even when the caller wanted plaintext.
+
+Validation: `cargo test -p ironrdp-client --locked --features rustls --lib
+config::tests` (two new tests: explicit opt-in forces TLS/CredSSP off;
+default/off behaviour unchanged). Live probe against a `PROTOCOL_RDP`-only
+server: X.224 negotiation selected standard RDP security, TLS upgrade was
+skipped, and the handshake progressed to the server's RC4 enforcement point.
