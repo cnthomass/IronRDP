@@ -750,6 +750,7 @@ pub struct ConfigBuilder {
     domain: Option<String>,
     enable_tls: Option<bool>,
     enable_credssp: Option<bool>,
+    enable_standard_rdp_security: Option<bool>,
     certificate_validation: Option<ironrdp_tls::CertificateValidation>,
     certificate_validation_callback: Option<ironrdp_tls::CertificateValidationCallback>,
     keyboard_type: Option<ironrdp_pdu::gcc::KeyboardType>,
@@ -1134,6 +1135,21 @@ impl ConfigBuilder {
     pub fn with_tls(mut self, enabled: bool) -> Self {
         self.enable_tls = Some(enabled);
         self.properties.set_enable_tls(enabled);
+        self
+    }
+
+    /// Explicitly opt into standard RDP security (legacy plaintext RDP; `PROTOCOL_RDP` with
+    /// `ENCRYPTION_LEVEL_NONE`) for servers that accept neither TLS nor NLA.
+    ///
+    /// When set, this overrides the transport-derived default (named-pipe transports on Windows
+    /// opt in automatically) and forces both [`with_tls`](Self::with_tls) and
+    /// [`with_credssp`](Self::with_credssp) to `false`: no TLS upgrade is performed and every
+    /// byte — including credentials submitted for autologon — travels as plaintext, so this is
+    /// only appropriate for trusted networks. The connection still fails cleanly if the server
+    /// demands RC4/FIPS encryption, which IronRDP does not implement.
+    #[must_use]
+    pub fn with_standard_rdp_security(mut self, enabled: bool) -> Self {
+        self.enable_standard_rdp_security = Some(enabled);
         self
     }
 
@@ -1813,12 +1829,17 @@ impl ConfigBuilder {
         };
 
         // Named-pipe RDP (Windows Sandbox) is the only built-in path that opts into PROTOCOL_RDP
-        // with ENCRYPTION_LEVEL_NONE. Keep TCP/gateway paths on enhanced security by default.
+        // with ENCRYPTION_LEVEL_NONE. Keep TCP/gateway paths on enhanced security by default
+        // unless the caller explicitly opted in via with_standard_rdp_security().
         // Check before consuming `self.transport` below.
         #[cfg(windows)]
-        let enable_standard_rdp_security = matches!(&self.transport, TransportKind::NamedPipe { .. });
+        let transport_implies_standard_rdp_security =
+            matches!(&self.transport, TransportKind::NamedPipe { .. });
         #[cfg(not(windows))]
-        let enable_standard_rdp_security = false;
+        let transport_implies_standard_rdp_security = false;
+        let enable_standard_rdp_security = self
+            .enable_standard_rdp_security
+            .unwrap_or(transport_implies_standard_rdp_security);
 
         // Resolve the granular transport selection into the bundled form, folding in the separately
         // tracked secrets (gateway credentials, RDCleanPath token).
@@ -2429,6 +2450,37 @@ mod tests {
                 .build()
                 .is_err()
         );
+    }
+
+    #[test]
+    fn standard_rdp_security_opt_in_forces_plaintext_front_end() {
+        let config = complete_builder()
+            .with_tls(true)
+            .with_credssp(true)
+            .with_standard_rdp_security(true)
+            .build()
+            .unwrap();
+        assert!(config.connector.enable_standard_rdp_security);
+        assert!(!config.connector.enable_tls);
+        assert!(!config.connector.enable_credssp);
+    }
+
+    #[test]
+    fn standard_rdp_security_stays_off_by_default_and_honors_opt_out() {
+        let config = complete_builder().build().unwrap();
+        assert!(!config.connector.enable_standard_rdp_security);
+        assert!(config.connector.enable_tls);
+        assert!(config.connector.enable_credssp);
+
+        let config = complete_builder()
+            .with_standard_rdp_security(false)
+            .with_tls(false)
+            .with_credssp(false)
+            .build()
+            .unwrap();
+        assert!(!config.connector.enable_standard_rdp_security);
+        assert!(!config.connector.enable_tls);
+        assert!(!config.connector.enable_credssp);
     }
 
     fn complete_builder() -> ConfigBuilder {
